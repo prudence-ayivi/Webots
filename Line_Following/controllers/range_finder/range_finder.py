@@ -1,8 +1,9 @@
-"""line_following controller."""
+"""line_following controller with range finder."""
 
 # You may need to import some classes of the controller module. Ex:
 from controller import Robot, Motor, DistanceSensor 
 import numpy as np
+from matplotlib import pyplot as plt
 
 MAX_SPEED = 6.28  # rad/s
 
@@ -29,6 +30,13 @@ rightMotor.setPosition(float('inf'))
 leftMotor.setVelocity(0.0)
 rightMotor.setVelocity(0.0)
 
+#Add lidar sensor
+lidar = robot.getDevice('LDS-01')
+lidar.enable(timestep)
+lidar.enablePointCloud()
+
+display = robot.getDevice('display')
+
 # Odometry variables (initialization before the loop)
 total_distance = 0.0  # Total distance traveled (initialize to 0)
 orientation = 0.0  # Orientation in radians (initialize to 0)
@@ -38,7 +46,9 @@ xw = 0.0       # Robot starts at x = 0
 yw = 0.028     # Robot starts slightly ahead of the start line
 omegaz = 1.5708   # Robot orientation in radians (90°)
 
-# Main loop:
+angles = np.linspace(3.1415,-3.1415,360)
+
+# Main loop: 
 # - perform simulation steps until Webots is stopping the controller
 while robot.step(timestep) != -1:
 
@@ -53,7 +63,43 @@ while robot.step(timestep) != -1:
     phildot  = 0.5 * MAX_SPEED # left motor
     phirdot = 0.5 * MAX_SPEED # right motor
     
-    # follow line
+    ranges = lidar.getRangeImage() 
+    #print((ranges)) 
+    
+    # read sensor data and tranform to robot coordinate system 
+    x_r, y_r = [], []
+    x_w, y_w = [], [] #tranform in world coordinate system
+    
+    #homogeneous transformation
+    w_R_r = np.array([[np.cos(omegaz), -np.sin(omegaz)], # rotation matrix from robot to world coordinates
+                      [np.sin(omegaz),  np.cos(omegaz)]])
+    
+    X_w = np.array([[xw], [yw]]) # robot position in world coordinates
+    print(w_R_r)
+    
+    for i, angle in enumerate(angles):
+        x_i = ranges[i]*np.cos(angle) #lidar value
+        y_i = ranges[i]*np.sin(angle) #lidar value
+        x_r.append(x_i)
+        y_r.append(y_i)
+        
+        Data = w_R_r @ np.array([[x_i], [y_i]]) + X_w # homogeneous transformation from robot to world coordinates
+        #tranformation with rotation matrix
+        # A= np.cos(omegaz) # angle x_r and x_w
+        # C= np.cos(omegaz - 1.57) # angle x_r and y_w / -np.sin(omegaz)
+        # B=np.cos(omegaz + 1.57) # angle y_r and x_w / np.sin(omegaz)
+        # D= np.cos(omegaz) # angle y_r and y_w
+        # x_w.append(A*x_i + B*y_i + xw)
+        # y_w.append(C*x_i + D*y_i + yw)
+        x_w.append(Data[0,0])
+        y_w.append(Data[1,0])
+    
+    plt.ion()
+    plt.plot(x_w,y_w, '.') 
+    plt.pause(0.01) 
+    plt.show()
+    
+    # follow line 
     if (g[0]>0 and g[1] < 250 and g[2] > 500 ) : #drive straight
          phildot, phirdot = 0.35 * MAX_SPEED, 0.35 * MAX_SPEED 
 
@@ -102,4 +148,3 @@ while robot.step(timestep) != -1:
     
     
     pass
-
