@@ -10,8 +10,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.5566265796207833 0.5347954475473083 0.6357363291037738 2.044948414361619
-  position 0.26468447314778193 0.05725658749991226 1.5284963524128319
+  orientation -0.5600018652137677 0.5489125212498719 0.6205585830300072 2.048641188119323
+  position 0.2691886417335999 0.07997135409387404 1.8278314387756436
 }
 TexturedBackground {
 }
@@ -2012,6 +2012,10 @@ Robot {
     DEF TURRET_SLOT Pose {
       translation -0.0095 0 0.0486
       children [
+        Compass {
+        }
+        GPS {
+        }
         Lidar {
           translation 0 0 0.02
           children [
@@ -2784,7 +2788,7 @@ Robot {
       0 0 0
     ]
   }
-  controller "range_finder"
+  controller "mapping"
   cpuConsumption 1.11
   remoteControl "e-puck_bluetooth"
 }

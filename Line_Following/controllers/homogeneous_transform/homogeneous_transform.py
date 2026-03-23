@@ -60,9 +60,10 @@ while robot.step(timestep) != -1:
     #print(g)
     
     # initialize motor speeds at 50% of MAX_SPEED.
-    phildot  = 0.5 * MAX_SPEED # left motor
+    phildot = 0.5 * MAX_SPEED # left motor
     phirdot = 0.5 * MAX_SPEED # right motor
     
+    # Read and process lidar data
     ranges = np.array(lidar.getRangeImage())
     ranges[ranges == np.inf] = 0 
     
