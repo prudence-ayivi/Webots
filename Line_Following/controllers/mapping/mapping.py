@@ -4,7 +4,8 @@
 from controller import Robot, Motor, DistanceSensor 
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy import cmap, cspace
+# from scipy import signal
+
 
 MAX_SPEED = 6.28  # rad/s
 
@@ -45,16 +46,6 @@ compass.enable(timestep)
 
 display = robot.getDevice('display')
 
-
-def world2map(xw,yw):
-   px = min(px,299)
-   py = min(py,299)
-   px = max[px,0]
-   py = max[py,0]
-   return [px,py]
-
-cmap = False
-
 # Odometry variables (initialization before the loop)
 total_distance = 0.0  # Total distance traveled (initialize to 0)
 orientation = 0.0  # Orientation in radians (initialize to 0)
@@ -65,6 +56,24 @@ yw = 0.028     # Robot starts slightly ahead of the start line
 omegaz = 1.5708   # Robot orientation in radians (90°)
 
 angles = np.linspace(3.1415,-3.1415,360)
+# angles = np.linspace(1.5708/2,-1.5708/2,360)
+
+map = np.zeros((300,300))
+
+def world2map(xw,yw):   
+   # Convert from world (meters) to map (pixels), world coordinates shifted to (0,0) as center
+    px = int((xw + 0.5 - 0.305)*300)
+    py = int(299-(yw + 0.25)*300)
+    
+    # Clamp values to map boundaries
+    px = min(px,299) 
+    py = min(py,299) 
+    px = max(px,0)
+    py = max(py,0)
+    
+    return [px,py]
+
+cmap = False
 
 # Main loop: 
 # - perform simulation steps until Webots is stopping the controller
@@ -72,7 +81,8 @@ while robot.step(timestep) != -1:
 
     xw = gps.getValues()[0]
     yw = gps.getValues()[1] 
-    theta=np.arctan2(compass.getValues()[0],compass.getValues()[1])
+    omegaz= np.arctan2(compass.getValues()[0], compass.getValues()[1]) 
+    print(f"omegaz deg: {np.degrees(omegaz):.2f}")
     
     # Process sensor data here.
     g =[]
@@ -82,34 +92,52 @@ while robot.step(timestep) != -1:
     # initialize motor speeds at MAX_SPEED.
     phildot = MAX_SPEED # left motor
     phirdot = MAX_SPEED # right motor
-    
+
     # Read and process lidar data
     ranges = np.array(lidar.getRangeImage())
     ranges[ranges == np.inf] = 100 
     
-    # read sensor data and tranform to robot coordinate system 
-    x_r, y_r = [], []
-    x_w, y_w = [], [] #tranform in world coordinate system
-
     #homogeneous transformation
-    
-    w_T_r = np.array([[np.cos(theta), -np.sin(theta), xw], # transformation matrix from robot to world coordinates
-                      [np.sin(theta),  np.cos(theta), yw], 
+    w_T_r = np.array([[np.cos(omegaz), -np.sin(omegaz), xw], # transformation matrix from robot to world coordinates
+                      [np.sin(omegaz),  np.cos(omegaz), yw], 
                       [0,0,1]])
 
     X_r= np.array([ranges * np.cos(angles), ranges * np.sin(angles), np.ones_like(ranges)]) # lidar points in homogeneous coordinates (3x360)
     Data = w_T_r @ X_r # homogeneous transformation from robot to world coordinates (3x360)
     
-    # Draw robot trajectory
-    px, py = world2map(xw,yw)
-    display.drawPixel(px,py) 
+     # Draw objects 
+    for i in range(Data.shape[1]): 
+        x_i = Data[0, i] 
+        y_i = Data[1, i] 
+        
+        px, py = world2map(x_i, y_i) 
+        color = 0xFFFFFF  
+        display.setColor(int(color)) 
+        display.drawPixel(px, py)
+    
+    # 1. Draw robot trajectory
     display.setColor(0xFF0000)
+    px, py = world2map(xw,yw)
+    display.drawPixel(px,py)    
 
+    #2. Probabilistic Mapping : Store value on the map
+    for d in Data.transpose():
+         px, py = world2map(d[0], d[1])
+         map[px, py] += 0.005
+         if (map[px, py]>1):
+              map[px, py] = 1 
+    v = int(map[px, py] * 255)
+    # color=(v*256**2+v*256+v)
+    color = 0xFF0000 
+    display.setColor(int(color)) 
+    display.drawPixel(px,py)  
+
+    # Configuration space map
     if (cmap == False and yw <= 0.1 and xw < 0.1) : 
         print("Arrived")
         cmap=True 
         from scipy import signal
-        cspace = signal.convolve2d(map, np.ones_like((20,20)),mode='same')
+        cspace = signal.convolve2d(map, np.ones((20,20)), mode='same')
         plt.figure(0)
         plt.imshow(cspace)
         plt.show()
@@ -118,11 +146,11 @@ while robot.step(timestep) != -1:
         plt.imshow(cspace > 0.9)
         plt.show()
 
-    
     # plt.ion()
     # plt.plot(Data[0,:], Data[1,:] , '.') 
     # plt.pause(0.01) 
     # plt.show()
+
     
     # follow line 
     if (g[0]>0 and g[1] < 250 and g[2] > 500 ) : #drive straight
