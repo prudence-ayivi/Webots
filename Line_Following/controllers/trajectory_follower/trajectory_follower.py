@@ -1,13 +1,13 @@
-"""line_following controller with mapping."""
+""" trajectorye_follower controller"""
 
 # You may need to import some classes of the controller module. Ex:
-from controller import Robot 
+from controller import Robot, Supervisor 
 import numpy as np
 from matplotlib import pyplot as plt
 # from scipy import signal
 
 # create the Robot instance.
-robot = Robot()
+robot = Supervisor()
 
 # get the time step of the current world.
 timestep = int(robot.getBasicTimeStep())
@@ -74,6 +74,15 @@ def world2map(xw,yw):
 
 cmap = False
 
+# Waypoints for trajectory following
+WP = [(0, 0.68), (0.44, 0.68), (0.66, 0.51), (0.35, 0.24), (0.63, 0), (0.63, -0.16), (0, -0.16), (0, 0)]
+index = 0
+
+display.setColor(0x00FF00)
+
+marker = robot.getFromDef("marker").getField("translation")
+#marker.setSFVec3f([0, 0, 0.2])
+
 # Main loop: 
 # - perform simulation steps until Webots is stopping the controller
 while robot.step(timestep) != -1:
@@ -81,7 +90,29 @@ while robot.step(timestep) != -1:
     xw = gps.getValues()[0]
     yw = gps.getValues()[1] 
     omegaz= np.arctan2(compass.getValues()[0], compass.getValues()[1]) 
-    print(f"omegaz deg: {np.degrees(omegaz):.2f}")
+    #print(omegaz)
+
+    marker.setSFVec3f([*WP[index], 0])
+
+    rho = np.sqrt((xw - WP[index][0])**2 + (yw - WP[index][1])**2) # distance error to the current waypoint
+    alpha = np.arctan2(WP[index][1] - yw, WP[index][0] - xw) - omegaz # heading (orientation) error to the current waypoint
+    
+    # Normalize alpha to the range [-pi, pi]
+    if (alpha > np.pi):
+        alpha -= 2*np.pi
+    
+    print(rho, alpha/3.1425*180)
+
+    if (rho < 0.1) :
+         index += 1
+       
+        # print(f"Reached waypoint {index} at position ({xw:.2f}, {yw:.2f})")
+        # index += 1
+        # if (index >= len(WP)) :
+        #     print("All waypoints reached. Stopping the robot.")
+        #     leftMotor.setVelocity(0.0)
+        #     rightMotor.setVelocity(0.0)
+        #     break
     
     # Process sensor data here.
     g =[]
@@ -102,7 +133,7 @@ while robot.step(timestep) != -1:
     ranges[ranges == np.inf] = 100 
 
     X_i= np.array([ranges * np.cos(angles), ranges * np.sin(angles), np.ones_like(ranges)]) # lidar points in homogeneous coordinates (3x360)
-    Data = w_T_r @ X_i #  transform ranges images to world coordinates (3x360)
+    Data = w_T_r @ X_i # transform ranges images to world coordinates (3x360)
     
      # Draw objects 
     for i in range(Data.shape[1]): 
@@ -119,7 +150,7 @@ while robot.step(timestep) != -1:
     display.setColor(0xFF0000)
     display.drawPixel(px,py)    
 
-    #2. Probabilistic Mapping : Store value on the map
+    # 2. Probabilistic Mapping : Store value on the map
     for d in Data.transpose():
          px, py = world2map(d[0], d[1])
          map[px, py] += 0.005
@@ -130,20 +161,6 @@ while robot.step(timestep) != -1:
     #color = 0xFFFFFF 
     display.setColor(int(color)) 
     display.drawPixel(px,py)  
-
-    # Configuration space map
-    if (cmap == False and yw <= 0.1 and xw < 0.1) : 
-        print("Arrived")
-        cmap=True 
-        from scipy import signal
-        cspace = signal.convolve2d(map, np.ones((20,20)), mode='same')
-        plt.figure(0)
-        plt.imshow(cspace)
-        plt.show()
-
-        plt.figure(1)
-        plt.imshow(cspace > 0.9)
-        plt.show()
 
     # plt.ion()
     # plt.plot(Data[0,:], Data[1,:] , '.') 
@@ -161,9 +178,6 @@ while robot.step(timestep) != -1:
     elif (g[1] > 500) : # turn left
          leftSpeed, rightSpeed = -0.05 * MAX_SPEED, 0.25 * MAX_SPEED 
     
-    leftMotor.setVelocity(leftSpeed)
-    rightMotor.setVelocity(rightSpeed)
-
     # Odometry calculations
     v_l = WHEEL_RADIUS * leftSpeed  # Linear speed of left wheel
     v_r = WHEEL_RADIUS * rightSpeed  # Linear speed of right wheel
@@ -171,17 +185,6 @@ while robot.step(timestep) != -1:
     # Compute displacement Δx and change in orientation Δωz
     delta_x = (v_l + v_r) / 2 * dt
     delta_wz = (v_r - v_l) / WHEEL_DISTANCE * dt 
-    # print(f"Displacement : {delta_x:.3f} m, Orientation: {delta_wz:.2f} rad")
-    
-    #  total distance and orientation
-    total_distance += delta_x
-    orientation += delta_wz
-    
-    # Convert orientation to degrees for readability
-    orientation_deg = (orientation / 3.1415) * 180
-    
-    # Print odometry data
-    #print(f"Distance traveled: {total_distance:.3f} m, Orientation: {orientation_deg:.2f} degrees")
     
     # Update orientation and position
     omegaz += delta_wz
@@ -189,6 +192,19 @@ while robot.step(timestep) != -1:
     yw = yw + np.sin(omegaz) * delta_x 
     
     error = np.sqrt(xw**2 + yw**2) # Euclidean error distance to (0,0)
+
+    # Trajectory following using a simple proportional controller
+    p1 = 1 # proportional gain for heading error
+    p2 = 10 # proportional gain for distance error
+
+    leftSpeed = - alpha*p1 + rho*p2
+    rightSpeed = alpha*p1 + rho*p2
+
+    leftSpeed = max(min(leftSpeed,6.28),-6.28)
+    rightSpeed = max(min(rightSpeed,6.28),-6.28)
+
+    leftMotor.setVelocity(leftSpeed)
+    rightMotor.setVelocity(rightSpeed)
     
     print(f"Localization: xw = {xw:.2f} m, yw = {yw:.2f} m, omegaz = {np.degrees(omegaz):.2f} °, Error = {error:.3f}")
     

@@ -1,11 +1,10 @@
 """line_following controller with range finder."""
 
 # You may need to import some classes of the controller module. Ex:
-from controller import Robot, Motor, DistanceSensor 
+from controller import Robot 
 import numpy as np
 from matplotlib import pyplot as plt
 
-MAX_SPEED = 6.28  # rad/s
 
 # create the Robot instance.
 robot = Robot()
@@ -13,10 +12,6 @@ robot = Robot()
 # get the time step of the current world.
 timestep = int(robot.getBasicTimeStep())
 dt = timestep / 1000.0  # convert timestep to seconds
-
-# Wheel radius and distance between wheels
-WHEEL_RADIUS = 0.0201  # meters
-WHEEL_DISTANCE = 0.052  # meters
 
 gs = []
 for i in range (3):
@@ -40,6 +35,12 @@ display = robot.getDevice('display')
 # Odometry variables (initialization before the loop)
 total_distance = 0.0  # Total distance traveled (initialize to 0)
 orientation = 0.0  # Orientation in radians (initialize to 0)
+
+MAX_SPEED = 6.28  # rad/s
+
+# Wheel radius and distance between wheels
+WHEEL_RADIUS = 0.0201  # meters
+WHEEL_DISTANCE = 0.052  # meters
 
 # Initial pose of the robot
 xw = 0.0       # Robot starts at x = 0
