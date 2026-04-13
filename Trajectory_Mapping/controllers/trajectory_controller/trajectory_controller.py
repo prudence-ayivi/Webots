@@ -1,4 +1,4 @@
-""" trajectory_follower controller"""
+"""trajectory_controller controller."""
 
 # You may need to import some classes of the controller module. Ex:
 from controller import Robot, Supervisor 
