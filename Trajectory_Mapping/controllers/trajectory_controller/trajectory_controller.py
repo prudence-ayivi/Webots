@@ -13,20 +13,20 @@ robot = Supervisor()
 timestep = int(robot.getBasicTimeStep())
 dt = timestep / 1000.0  # convert timestep to seconds
 
-gs = []
-for i in range (3):
-        gs.append(robot.getDevice('gs' + str(i)))
-        gs[-1].enable(timestep)
+# gs = []
+# for i in range (3):
+#         gs.append(robot.getDevice('gs' + str(i)))
+#         gs[-1].enable(timestep)
 
-leftMotor = robot.getDevice('left wheel motor')
-rightMotor = robot.getDevice('right wheel motor')
+leftMotor = robot.getDevice('wheel_left_joint')
+rightMotor = robot.getDevice('wheel_right_joint')
 leftMotor.setPosition(float('inf'))
 rightMotor.setPosition(float('inf'))
 leftMotor.setVelocity(0.0)
 rightMotor.setVelocity(0.0)
 
 #Add lidar sensor
-lidar = robot.getDevice('LDS-01')
+lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
 
@@ -50,8 +50,8 @@ WHEEL_RADIUS = 0.0201  # meters
 WHEEL_DISTANCE = 0.052  # meters
 
 # Initial pose of the robot
-xw = 0.0       # Robot starts at x = 0
-yw = 0.028     # Robot starts slightly ahead of the start line
+xw = -0.6    
+yw = 0.1   
 omegaz = 1.5708   # Robot orientation in radians (90°)
 
 angles = np.linspace(3.1415,-3.1415,360)
@@ -75,7 +75,9 @@ def world2map(xw,yw):
 cmap = False
 
 # Waypoints for trajectory following
-WP = [(0, 0.68), (0.44, 0.68), (0.66, 0.51), (0.35, 0.24), (0.63, 0), (0.63, -0.16), (0, -0.16), (0, 0)]
+WP = [(0.65, 0), (0.78, -0.45), (0.78, -1.25), (0.68, -1.75), (0.6, -2.25), (0.5, -2.65), (0.5, -2.95), (0.4, -3.1), 
+(0.2, -3.1), (-0.4, -3.2), (-0.8, -3.2), (-1.2, -3.25), (-1.4, -3.25), (-1.4, -2.9), (-1.5, -2.7), (-1.6, -2.5), (-1.65, -1.2), 
+(-1.65, -0.6), (-1.65, -0.3), (-1.5, -0.1), (-1.4, 0.1), (-1.2, 0.2), (0, 0)]
 index = 0
 
 display.setColor(0x00FF00)
@@ -115,9 +117,9 @@ while robot.step(timestep) != -1:
         #     break
     
     # Process sensor data here.
-    g =[]
-    for gsensor in gs :
-        g.append(gsensor.getValue())
+    # g =[]
+    # for gsensor in gs :
+    #     g.append(gsensor.getValue())
         
     # initialize motor speeds at MAX_SPEED.
     leftSpeed = MAX_SPEED # left motor
@@ -166,17 +168,7 @@ while robot.step(timestep) != -1:
     # plt.plot(Data[0,:], Data[1,:] , '.') 
     # plt.pause(0.01) 
     # plt.show()
-
     
-    # follow line 
-    if (g[0]>0 and g[1] < 250 and g[2] > 500 ) : #drive straight
-         leftSpeed, rightSpeed = 0.5 * MAX_SPEED, 0.5 * MAX_SPEED 
-
-    elif (g[2] < 550) : # turn right
-         leftSpeed, rightSpeed = 0.25 * MAX_SPEED, -0.05 * MAX_SPEED 
-    
-    elif (g[1] > 500) : # turn left
-         leftSpeed, rightSpeed = -0.05 * MAX_SPEED, 0.25 * MAX_SPEED 
     
     # Odometry calculations
     v_l = WHEEL_RADIUS * leftSpeed  # Linear speed of left wheel
@@ -196,12 +188,13 @@ while robot.step(timestep) != -1:
     # Trajectory following using a simple proportional controller
     p1 = 1 # proportional gain for heading error
     p2 = 10 # proportional gain for distance error
+    p3 = 0.5 # derivative gain for slowing down when close to the waypoint
 
     leftSpeed = - alpha*p1 + rho*p2
     rightSpeed = alpha*p1 + rho*p2
 
-    leftSpeed = max(min(leftSpeed,6.28),-6.28)
-    rightSpeed = max(min(rightSpeed,6.28),-6.28)
+    leftSpeed = max(min(leftSpeed,MAX_SPEED),-MAX_SPEED)
+    rightSpeed = max(min(rightSpeed,MAX_SPEED),-MAX_SPEED)
 
     leftMotor.setVelocity(leftSpeed)
     rightMotor.setVelocity(rightSpeed)
