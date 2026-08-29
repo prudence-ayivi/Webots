@@ -1,23 +1,17 @@
 """trajectory_controller controller."""
 
-# You may need to import some classes of the controller module. Ex:
 from controller import Robot, Supervisor 
 import numpy as np
 from matplotlib import pyplot as plt
-# from scipy import signal
+from scipy import signal
 
 # create the Robot instance.
 robot = Supervisor()
 
 # get the time step of the current world.
 timestep = int(robot.getBasicTimeStep())
-dt = timestep / 1000.0  # convert timestep to seconds
 
-# gs = []
-# for i in range (3):
-#         gs.append(robot.getDevice('gs' + str(i)))
-#         gs[-1].enable(timestep)
-
+# Initialize sensors and actuators
 leftMotor = robot.getDevice('wheel_left_joint')
 rightMotor = robot.getDevice('wheel_right_joint')
 leftMotor.setPosition(float('inf'))
@@ -29,6 +23,12 @@ rightMotor.setVelocity(0.0)
 lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
+# The lidar sensor offset from the centre of the robot
+LIDAR_OFFSET = 0.202
+
+# Angles for Lidar readings 
+angles = np.linspace(4.19/2, -4.19/2, 667)  # From ~120 degrees to -120 degrees
+angles = angles[80:len(angles)-80]
 
 #Add GPS and compass sensors for Odometry
 gps = robot.getDevice('gps')
@@ -39,173 +39,142 @@ compass.enable(timestep)
 
 display = robot.getDevice('display')
 
-# Odometry variables (initialization before the loop)
-total_distance = 0.0  # Total distance traveled (initialize to 0)
-orientation = 0.0  # Orientation in radians (initialize to 0)
-
 MAX_SPEED = 6.28  # rad/s
 
 # Wheel radius and distance between wheels
-WHEEL_RADIUS = 0.0201  # meters
-WHEEL_DISTANCE = 0.052  # meters
+WHEEL_RADIUS = 0.10  # meters
+WHEEL_DISTANCE = 0.455  # meters
 
-# Initial pose of the robot
-xw = -0.6    
-yw = 0.1   
-omegaz = 1.5708   # Robot orientation in radians (90°)
+# Initialize mapping structures
+MAP_WIDTH = 250               # Width of occupancy grid in pixels 
+MAP_HEIGHT = 300              # Height of occupancy grid in pixels
 
-angles = np.linspace(3.1415,-3.1415,360)
-# angles = np.linspace(1.5708/2,-1.5708/2,360)
+map = np.zeros((MAP_WIDTH, MAP_HEIGHT))
+kernel = np.ones((26, 26))
 
-map = np.zeros((300,300))
+# World-space bounding box of the area to map. It cover the
+# waypoint loop below (roughly x in [-1.65, 0.8], y in [-3.2, 0.1]) with a margin. 
+X_MIN, X_MAX = -2.2, 1.2
+Y_MIN, Y_MAX = -3.6, 0.6
 
+# Converts world (meters) coordinates (xw, yw) to map grid to map (pixels) coordinates (px, py).
 def world2map(xw,yw):   
-   # Convert from world (meters) to map (pixels), world coordinates shifted to (0,0) as center
-    px = int((xw + 0.5 - 0.305)*300)
-    py = int(299-(yw + 0.25)*300)
+    px = int(52 * xw + 124.8) 
+    py = int(-52 * yw + 93.834)
+
+    # px = int((xw - X_MIN) / (X_MAX - X_MIN) * (MAP_WIDTH - 1))
+    # py = int((Y_MAX - yw) / (Y_MAX - Y_MIN) * (MAP_HEIGHT - 1))
     
     # Clamp values to map boundaries
-    px = min(px,299) 
-    py = min(py,299) 
-    px = max(px,0)
-    py = max(py,0)
-    
-    return [px,py]
+    px = min(max(px, 0), MAP_WIDTH - 1) 
+    py = min(max(py, 0), MAP_HEIGHT - 1) 
+    return [px, py]
+           
+# Waypoints for trajectory following (loop around the dining table)
+WP = [(0.4, 0.1), (0.5, -0.45), (0.5, -1.75), (0.4, -2.9), 
+      (-0.4, -3.1), (-0.8, -3.2), (-1.2, -3.2), (-1.6, -2.7), 
+      (-1.6, -2.5), (-1.65, -1.2), (-1.65, -0.6), (-1.65, -0.3), 
+      (-1.5, -0.1), (-1.4, 0.1), (-1.2, 0.2), (-0.6, 0)]
 
-cmap = False
-
-# Waypoints for trajectory following
-WP = [(0.65, 0), (0.78, -0.45), (0.78, -1.25), (0.68, -1.75), (0.6, -2.25), (0.5, -2.65), (0.5, -2.95), (0.4, -3.1), 
-(0.2, -3.1), (-0.4, -3.2), (-0.8, -3.2), (-1.2, -3.25), (-1.4, -3.25), (-1.4, -2.9), (-1.5, -2.7), (-1.6, -2.5), (-1.65, -1.2), 
-(-1.65, -0.6), (-1.65, -0.3), (-1.5, -0.1), (-1.4, 0.1), (-1.2, 0.2), (0, 0)]
 index = 0
+direction = 1                 # +1: forward through WP (CW), -1: backward (CCW)
+WAYPOINT_THRESHOLD = 0.3      # ~30 cm, per assignment instructions
+finished = False
 
-display.setColor(0x00FF00)
+# Proportional Controller gains (4/5/0.3,0.4, 6/5/0.5 t= 91.4s)
+P_ALPHA = 6.0 # proportional gain for heading error
+P_RHO = 5.0 # proportional gain for distance error
+ANGLE_GATE = 0.6  # rad derivative gain for slowing down when close to the waypoint 
 
 marker = robot.getFromDef("marker").getField("translation")
-#marker.setSFVec3f([0, 0, 0.2])
 
 # Main loop: 
 # - perform simulation steps until Webots is stopping the controller
 while robot.step(timestep) != -1:
 
+    # --- Localization (GPS + compass) ---
     xw = gps.getValues()[0]
     yw = gps.getValues()[1] 
-    omegaz= np.arctan2(compass.getValues()[0], compass.getValues()[1]) 
-    #print(omegaz)
-
+    theta = np.arctan2(compass.getValues()[0], compass.getValues()[1]) 
+    
+    # Update the marker's position to the current waypoint
     marker.setSFVec3f([*WP[index], 0])
 
-    rho = np.sqrt((xw - WP[index][0])**2 + (yw - WP[index][1])**2) # distance error to the current waypoint
-    alpha = np.arctan2(WP[index][1] - yw, WP[index][0] - xw) - omegaz # heading (orientation) error to the current waypoint
-    
-    # Normalize alpha to the range [-pi, pi]
-    if (alpha > np.pi):
-        alpha -= 2*np.pi
-    
-    print(rho, alpha/3.1425*180)
+    # --- Calculate distance (rho) and heading (alpha) errors to current waypoint ---
+    rho = np.sqrt((xw - WP[index][0]) ** 2 + (yw - WP[index][1]) ** 2) # distance error 
+    alpha = np.arctan2(WP[index][1] - yw, WP[index][0] - xw) - theta # heading (orientation) error
+    alpha = (alpha + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
 
-    if (rho < 0.1) :
-         index += 1
-       
-        # print(f"Reached waypoint {index} at position ({xw:.2f}, {yw:.2f})")
-        # index += 1
-        # if (index >= len(WP)) :
-        #     print("All waypoints reached. Stopping the robot.")
-        #     leftMotor.setVelocity(0.0)
-        #     rightMotor.setVelocity(0.0)
-        #     break
+    # Implement full proportional controller for trajectory following
     
-    # Process sensor data here.
-    # g =[]
-    # for gsensor in gs :
-    #     g.append(gsensor.getValue())
-        
-    # initialize motor speeds at MAX_SPEED.
-    leftSpeed = MAX_SPEED # left motor
-    rightSpeed = MAX_SPEED # right motor
-    
-    #homogeneous transformation
-    w_T_r = np.array([[np.cos(omegaz), -np.sin(omegaz), xw], # transformation matrix from robot to world coordinates
-                      [np.sin(omegaz),  np.cos(omegaz), yw], 
+    # --- Waypoint switching: forward through WP, then backward ---
+    if not finished and rho < WAYPOINT_THRESHOLD:
+        if direction == 1 and index == len(WP) - 1:
+            direction = -1
+        elif direction == -1 and index == 0:
+            finished = True
+        else:
+            index += direction
+ 
+    # --- Proportional controller: turn to face the waypoint, then drive ---
+    if finished:
+        leftSpeed = rightSpeed = 0.0
+    else:
+        forward = P_RHO * rho if abs(alpha) < ANGLE_GATE else 0.0
+        turn = P_ALPHA * alpha
+        leftSpeed = -turn + forward
+        rightSpeed = turn + forward
+        leftSpeed = max(min(leftSpeed, MAX_SPEED), -MAX_SPEED)
+        rightSpeed = max(min(rightSpeed, MAX_SPEED), -MAX_SPEED)
+ 
+    leftMotor.setVelocity(leftSpeed)
+    rightMotor.setVelocity(rightSpeed)
+
+    # Transformation matrix from robot to world coordinates
+    w_T_r = np.array([[np.cos(theta), -np.sin(theta), xw], 
+                      [np.sin(theta),  np.cos(theta), yw], 
                       [0,0,1]])
 
     # Read and process lidar data
     ranges = np.array(lidar.getRangeImage())
+    # Exclude the first and last 80 readings to avoid edge artifacts
+    ranges = ranges[80:len(ranges)-80]
     ranges[ranges == np.inf] = 100 
-
-    X_i= np.array([ranges * np.cos(angles), ranges * np.sin(angles), np.ones_like(ranges)]) # lidar points in homogeneous coordinates (3x360)
-    Data = w_T_r @ X_i # transform ranges images to world coordinates (3x360)
     
-     # Draw objects 
-    for i in range(Data.shape[1]): 
-        x_i = Data[0, i] 
-        y_i = Data[1, i] 
-        
-        px, py = world2map(x_i, y_i) 
-        color = 0xFFFFFF  
-        display.setColor(int(color)) 
-        display.drawPixel(px, py)
+    # Transform Lidar readings to the robot's coordinate system
+    X_i= np.array([ranges * np.cos(angles) + LIDAR_OFFSET, ranges * np.sin(angles), np.ones_like(angles)]) 
+    Data = w_T_r @ X_i 
     
-    # 1. Draw robot trajectory
-    px, py = world2map(xw,yw)
-    display.setColor(0xFF0000)
-    display.drawPixel(px,py)    
+    # Draw objects  
 
-    # 2. Probabilistic Mapping : Store value on the map
+    # 2. Probabilistic Occupancy map : Store value on the map / 0.64, -2.46, 0.02 / robot : 0.67, 0.02, 0.095 / -0.6, 0.1, 
     for d in Data.transpose():
-         px, py = world2map(d[0], d[1])
-         map[px, py] += 0.005
-         if (map[px, py]>1):
-              map[px, py] = 1 
-    v = int(map[px, py] * 255)
-    color=(v*256**2+v*256+v)
-    #color = 0xFFFFFF 
-    display.setColor(int(color)) 
-    display.drawPixel(px,py)  
+        px, py = world2map(d[0], d[1])
+        map[px, py] += 0.01
+        if (map[px, py]>1):
+            map[px, py] = 1 
+        v = int(map[px, py] * 255)
+        color=(v*256**2+v*256+v)    # Grayscale color
+        display.setColor(int(color)) 
+        display.drawPixel(px,py)  
 
-    # plt.ion()
-    # plt.plot(Data[0,:], Data[1,:] , '.') 
-    # plt.pause(0.01) 
-    # plt.show()
+    # 1. Draw robot trajectory
+        px, py = world2map(xw,yw) 
+        display.setColor(0xFF0000)  # red color
+        display.drawPixel(px,py)     
     
-    
-    # Odometry calculations
-    v_l = WHEEL_RADIUS * leftSpeed  # Linear speed of left wheel
-    v_r = WHEEL_RADIUS * rightSpeed  # Linear speed of right wheel
-    
-    # Compute displacement Δx and change in orientation Δωz
-    delta_x = (v_l + v_r) / 2 * dt
-    delta_wz = (v_r - v_l) / WHEEL_DISTANCE * dt 
-    
-    # Update orientation and position
-    omegaz += delta_wz
-    xw = xw + np.cos(omegaz) * delta_x
-    yw = yw + np.sin(omegaz) * delta_x 
-    
-    error = np.sqrt(xw**2 + yw**2) # Euclidean error distance to (0,0)
+    # 3. C-space convolution map
+    cmap = signal.convolve2d(map, kernel, mode='same') 
+    cspace = cmap > 0.9  # Thresholding to create a binary occupancy grid
 
-    # Trajectory following using a simple proportional controller
-    p1 = 1 # proportional gain for heading error
-    p2 = 10 # proportional gain for distance error
-    p3 = 0.5 # derivative gain for slowing down when close to the waypoint
 
-    leftSpeed = - alpha*p1 + rho*p2
-    rightSpeed = alpha*p1 + rho*p2
+    if finished:
+        print(f"Trajectory complete at simulation time t = {robot.getTime():.1f} s") 
 
-    leftSpeed = max(min(leftSpeed,MAX_SPEED),-MAX_SPEED)
-    rightSpeed = max(min(rightSpeed,MAX_SPEED),-MAX_SPEED)
-
-    leftMotor.setVelocity(leftSpeed)
-    rightMotor.setVelocity(rightSpeed)
-    
-    print(f"Localization: xw = {xw:.2f} m, yw = {yw:.2f} m, omegaz = {np.degrees(omegaz):.2f} °, Error = {error:.3f}")
-    
-    if (-303 <= np.degrees(omegaz) <= -300):
-        leftMotor.setVelocity(0.0)
-        rightMotor.setVelocity(0.0)
-        print("Robot has returned to the start line within acceptable error.")
-        break
-    
+        plt.figure()
+        plt.imshow(cspace)
+        plt.title(f"Configuration space map at t = {robot.getTime():.1f} s")
+        plt.savefig('cspace_map.png')
+        plt.show()    
     
     pass

@@ -39,14 +39,14 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/kitchen/breakfast/protos/JamJar.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/kitchen/breakfast/protos/CerealBox.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/kitchen/breakfast/protos/BiscuitBox.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/balls/protos/Ball.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/balls/protos/PingPongBall.proto"
 
 WorldInfo {
 }
 Viewpoint {
   fieldOfView 1.1
-  orientation -0.6881704737460596 0.3310713932847986 0.6456106656589448 2.358615318567512
-  position -0.4476009168876123 -1.854675398148587 5.314600427659552
+  orientation -0.6190114238733773 0.49425819718109215 0.6103553814242575 2.0287469445560604
+  position -1.3245076128651916 -1.8114012135431663 7.402634243542167
   exposure 0.7999999999999999
 }
 TexturedBackground {
@@ -823,9 +823,20 @@ BiscuitBox {
   translation -0.339933 -1.41 0.739843
   rotation 0 0 1 -0.262068
 }
+DEF marker PingPongBall {
+}
 Robot {
   translation -0.6 0.1 0.095
+  rotation 0 0 1 -1.5707953071795862
   children [
+    Compass {
+    }
+    Display {
+      width 250
+      height 300
+    }
+    GPS {
+    }
     DEF BODY_EXTENSION Pose {
       children [
         Solid {
@@ -962,7 +973,6 @@ Robot {
               ]
               endPoint DEF TORSO_LIFT Solid {
                 translation 0 0 0.6
-                rotation 0.9273089253913606 0.09850094807618788 0.3611034756376796 0
                 children [
                   DEF ARM_RIGHT_EXTENSION Pose {
                     translation 0.05 0 0
@@ -1160,7 +1170,7 @@ Robot {
                           ]
                           endPoint DEF HEAD Solid {
                             translation 0.005 0 0.098
-                            rotation 1 3.7433852554700455e-23 1.1230155766410137e-22 1.5707999999999998
+                            rotation 1 3.7433852554700455e-23 3.7433852554700455e-23 1.5707999999999998
                             children [
                               DEF CAMERA Pose {
                                 translation 0.107 0.0802 0
@@ -1509,7 +1519,7 @@ Robot {
         }
       ]
     }
-    DEF LIDAR Pose {
+    Pose {
       translation 0.202 0 -0.004
       children [
         Lidar {
@@ -1597,10 +1607,6 @@ Robot {
           maxRange 5.6
         }
       ]
-    }
-    GPS {
-    }
-    Compass {
     }
     Accelerometer {
     }
@@ -1854,7 +1860,7 @@ Robot {
       ]
       endPoint DEF RIGHT_WHEEL Solid {
         translation 0 -0.202 0
-        rotation 1 0 0 1.5708
+        rotation 1 -2.355134362583855e-16 7.850447875279517e-17 1.5707999999999995
         children [
           DEF BIG_WHEEL Group {
             children [
@@ -1972,7 +1978,7 @@ Robot {
       ]
       endPoint DEF LEFT_WHEEL Solid {
         translation 0 0.202 0
-        rotation 1 1.5700895750559034e-16 -7.850447875279517e-17 1.5707999999999998
+        rotation 1 1.9135466695993847e-16 3.434570945434793e-17 1.570799999999998
         children [
           Pose {
             rotation -1 0 0 3.141593
@@ -2094,7 +2100,7 @@ Robot {
             }
             endPoint DEF SMALL_WHEEL Solid {
               translation -0.016 0 -0.04
-              rotation -1 1.570089575055904e-16 -1.1775671812919278e-16 1.570799999999999
+              rotation -1 2.747656756347831e-16 -1.1775671812919276e-16 1.5707999999999995
               children [
                 DEF SMALL_WHEEL_SHAPE Shape {
                   appearance PBRAppearance {
@@ -2212,7 +2218,7 @@ Robot {
             }
             endPoint DEF SMALL_WHEEL Solid {
               translation -0.016 0 -0.04
-              rotation -1 -7.850447875279517e-17 0 1.5707999999999998
+              rotation -1 2.355134362583855e-16 -7.850447875279517e-17 1.5708
               children [
                 DEF SMALL_WHEEL_SHAPE Shape {
                   appearance PBRAppearance {
@@ -2330,7 +2336,7 @@ Robot {
             }
             endPoint DEF SMALL_WHEEL_JOINT Solid {
               translation -0.016 0 -0.04
-              rotation -1 0 -7.850447875279516e-17 1.5708000000000004
+              rotation -1 7.850447875279517e-17 7.850447875279517e-17 1.5707999999999995
               children [
                 DEF SMALL_WHEEL_SHAPE Shape {
                   appearance PBRAppearance {
@@ -2448,7 +2454,7 @@ Robot {
             }
             endPoint DEF SMALL_WHEEL Solid {
               translation -0.016 0 -0.04
-              rotation -1 -5.495313512695662e-16 7.850447875279517e-17 1.5707999999999995
+              rotation -1 3.7289627407577706e-16 0 1.5708
               children [
                 DEF SMALL_WHEEL_SHAPE Shape {
                   appearance PBRAppearance {
@@ -2586,11 +2592,6 @@ Robot {
     density -1
     mass 28.26649
   }
-  controller "trajectory_follower"
-  controllerArgs [
-    ""
-  ]
+  controller "trajectory_controller"
   supervisor TRUE
-}
-DEF marker Ball {
 }
